@@ -17,60 +17,64 @@ class CustomOpenAIResponsesClient(BaseOpenAIClient):
     """
 
     def response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a synchronous response using raw HTTP POST request.
+        headers = {
+            "Authorization": self._api_key,
+            "Content-Type": "application/json"
+        }
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        body = {
+            "model": self._model_name,
+            "instructions": self._system_prompt,
+            "input": [m.to_dict() for m in messages]
+        }
 
-        Returns:
-            Message: The AI's response message.
+        resp = requests.post(self._endpoint, headers=headers, json=body)
 
-        Raises:
-            ValueError: If the API response contains no output text.
-            Exception: If the HTTP request fails (non-200 status code).
+        if resp.status_code != 200:
+            raise Exception(f"HTTP error {resp.status_code}: {resp.text}")
 
-        Note:
-            Uses the Responses API format with 'instructions' and 'input' parameters.
-            The response is printed to stdout before being returned.
-        """
-        #TODO:
-        # https://developers.openai.com/api/docs/guides/text?lang=curl
-        # - Prepare headers with authorization and content type
-        # - Prepare input messages
-        # - Execute post request to AI API (use `requests`)
-        # - Parse response
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        text = resp.json()["output_text"]
+        print(f"\nAI: {text}")
+        return Message(role=Role.ASSISTANT, content=text)
 
     async def stream_response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a streaming response using raw HTTP with event-based streaming.
+        headers = {
+            "Authorization": self._api_key,
+            "Content-Type": "application/json"
+        }
 
-        The Responses API uses a different SSE format than Chat Completions,
-        with explicit event types and data fields.
+        body = {
+            "model": self._model_name,
+            "instructions": self._system_prompt,
+            "input": [m.to_dict() for m in messages],
+            "stream": True
+        }
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        print("\nAI: ", end="", flush=True)
+        full_text = ""
+        current_event = None
 
-        Returns:
-            Message: The complete AI response message after all deltas are received.
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(self._endpoint, headers=headers, json=body) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP error {resp.status}: {await resp.text()}")
 
-        Note:
-            Uses event-based Server-Sent Events (SSE) format.
-            Listens for 'response.output_text.delta' events to build the response.
-            Each line with "event: " specifies the event type, followed by "data: " with the payload.
-        """
-        #TODO:
-        # https://developers.openai.com/api/docs/guides/text?lang=curl
-        # - Prepare headers with authorization and content type
-        # - Prepare input messages
-        # - Execute post request to AI API (use `aiohttp`)
-        # - Handle stream with events
-        # - Parse response
-        # - Print chunks to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+                async for line in resp.content:
+                    line = line.decode("utf-8").strip()
+
+                    if line.startswith("event: "):
+                        current_event = line[len("event: "):]
+
+                    elif line.startswith("data: "):
+                        if current_event != "response.output_text.delta":
+                            continue
+
+                        data = json.loads(line[len("data: "):])
+                        delta = data.get("delta", "")
+                        if delta:
+                            print(delta, end="", flush=True)
+                            full_text += delta
+
+        print()
+        return Message(role=Role.ASSISTANT, content=full_text)

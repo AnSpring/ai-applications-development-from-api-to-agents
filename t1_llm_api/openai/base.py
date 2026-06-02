@@ -15,20 +15,12 @@ class BaseOpenAIClient(AIClient, ABC):
     """
 
     def __init__(self, endpoint: str, model_name: str, system_prompt: str, api_key: str):
-        """
-        Initialize the OpenAI client with Bearer token authentication.
+        if not api_key or api_key.strip() == "":
+            raise ValueError("API kay cannot be null or empty")
 
-        Args:
-            endpoint (str): The OpenAI API endpoint URL.
-            model_name (str): The OpenAI model identifier (e.g., 'gpt-5').
-            system_prompt (str): The system-level instruction for the model.
-            api_key (str): The raw OpenAI API key (will be prefixed with 'Bearer ').
-
-        Raises:
-            ValueError: If api_key is None, empty, or contains only whitespace.
-        """
-        #TODO:
-        # Make validation for `api_key` (the same as in parent class)
-        # Call to __init__ of super class
-        # The `api_key` should be formatted according to Open AI specification
-        raise NotImplementedError
+        super().__init__(
+            endpoint = endpoint,
+            model_name=model_name,
+            api_key=f"Bearer {api_key}",
+            system_prompt=system_prompt
+        )

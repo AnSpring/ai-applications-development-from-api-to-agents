@@ -1,4 +1,5 @@
 import json
+
 import aiohttp
 import requests
 
@@ -17,60 +18,72 @@ class CustomOpenAIClient(BaseOpenAIClient):
     """
 
     def response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a synchronous response using raw HTTP POST request.
+        headers = {
+            "Authorization": self._api_key,
+            "Content-Type": "application/json",
+        }
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        all_messages = [
+            {"role": Role.SYSTEM.value, "content": self._system_prompt},
+            *[message.to_dict() for message in messages],
+        ]
 
-        Returns:
-            Message: The AI's response message.
+        body = {
+            "model": self._model_name,
+            "messages": all_messages,
+        }
 
-        Raises:
-            ValueError: If the API response contains no choices.
-            Exception: If the HTTP request fails (non-200 status code).
+        resp = requests.post(self._endpoint, headers=headers, json=body)
 
-        Note:
-            The system prompt is automatically prepended to the messages.
-            The response is printed to stdout before being returned.
-        """
-        #TODO:
-        # https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
-        # - Prepare headers with authorization and content type
-        # - Prepare message history with System prompt
-        # - Execute post request to AI API (use `requests`)
-        # - Parse response
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        if resp.status_code != 200:
+            raise Exception(f"HTTP error {resp.status_code}: {resp.text}")
+
+        text = resp.json()["choices"][0]["message"]["content"]
+        print(f"\nAI: {text}")
+        return Message(role=Role.ASSISTANT, content=text)
 
     async def stream_response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a streaming response using raw HTTP with Server-Sent Events (SSE).
+        headers = {
+            "Authorization": self._api_key,
+            "Content-Type": "application/json",
+        }
 
-        The response is streamed token-by-token using OpenAI's SSE format,
-        with each chunk printed immediately as it arrives.
+        all_messages = [
+            {"role": Role.SYSTEM.value, "content": self._system_prompt},
+            *[message.to_dict() for message in messages],
+        ]
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        body = {
+            "model": self._model_name,
+            "messages": all_messages,
+            "stream": True,
+        }
 
-        Returns:
-            Message: The complete AI response message after all chunks are received.
+        print("\nAI: ", end="", flush=True)
+        full_text = ""
 
-        Note:
-            The system prompt is automatically prepended to the messages.
-            Each token is printed to stdout as it arrives.
-            Uses Server-Sent Events (SSE) format where each line starts with "data: ".
-        """
-        #TODO:
-        # https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create (Streaming tab)
-        # - Prepare headers with authorization and content type
-        # - Prepare message history with System prompt
-        # - Execute post request to AI API (use `aihttp`)
-        # - Handle stream with chunks
-        # - Parse response
-        # - Print chunks to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(self._endpoint, headers=headers, json=body) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP error {resp.status}: {await resp.text()}")
+
+                async for line in resp.content:
+                    line = line.decode("utf-8").strip()
+
+                    if not line.startswith("data: "):
+                        continue
+
+                    data = line[len("data: "):]
+
+                    if data == "[DONE]":
+                        break
+
+                    chunk = json.loads(data)
+                    delta = chunk["choices"][0]["delta"].get("content")
+                    if delta:
+                        print(delta, end="", flush=True)
+                        full_text += delta
+
+        print()
+        return Message(role=Role.ASSISTANT, content=full_text)

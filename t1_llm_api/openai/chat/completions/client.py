@@ -1,4 +1,4 @@
-from openai import OpenAI, AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from commons.models.message import Message
 from commons.models.role import Role
@@ -20,66 +20,49 @@ class OpenAIClient(BaseOpenAIClient):
     """
 
     def __init__(self, endpoint: str, model_name: str, system_prompt: str, api_key: str):
-        """
-        Initialize the OpenAI Chat Completions client with SDK.
-
-        Args:
-            endpoint (str): The OpenAI API endpoint (for compatibility, not used by SDK).
-            model_name (str): The OpenAI model to use (e.g., 'gpt-5').
-            system_prompt (str): The system message to guide the model's behavior.
-            api_key (str): The OpenAI API key for authentication.
-        """
-        #TODO:
-        # Call to __init__ of super class
-        # Add OpenAI and AsyncOpenAI clients https://github.com/openai/openai-python?tab=readme-ov-file#usage
-        # (In readme you can find samples with both of these clients)
-        # Useful link with request/response samples https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
-        raise NotImplementedError
+        super().__init__(
+            endpoint=endpoint,
+            model_name=model_name,
+            system_prompt=system_prompt,
+            api_key=api_key,
+        )
+        self._client = OpenAI(api_key=api_key)
+        self._async_client = AsyncOpenAI(api_key=api_key)
 
     def response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a synchronous response from OpenAI's Chat Completions API.
+        all_messages = [
+            {"role": Role.SYSTEM.value, "content": self._system_prompt},
+            *[message.to_dict() for message in messages],
+        ]
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        result = self._client.chat.completions.create(
+            model=self._model_name,
+            messages=all_messages,
+        )
 
-        Returns:
-            Message: The AI's response message.
-
-        Note:
-            The system prompt is automatically prepended to the messages.
-            The response is printed to stdout before being returned.
-        """
-        #TODO:
-        # - Prepare message history with System prompt
-        # - Call client
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        text = result.choices[0].message.content
+        print(f"\nAI: {text}")
+        return Message(role=Role.ASSISTANT, content=text)
 
     async def stream_response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a streaming response from OpenAI's Chat Completions API.
+        all_messages = [
+            {"role": Role.SYSTEM.value, "content": self._system_prompt},
+            *[message.to_dict() for message in messages],
+        ]
 
-        The response is streamed token-by-token, with each chunk printed
-        immediately as it arrives.
+        stream = await self._async_client.chat.completions.create(
+            model=self._model_name,
+            messages=all_messages,
+            stream=True,
+        )
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        print("\nAI: ", end="", flush=True)
+        full_text = ""
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                print(delta, end="", flush=True)
+                full_text += delta
+        print()
 
-        Returns:
-            Message: The complete AI response message after all chunks are received.
-
-        Note:
-            The system prompt is automatically prepended to the messages.
-            Each token is printed to stdout as it arrives for real-time display.
-        """
-        #TODO:
-        # - Prepare message history with System prompt
-        # - Call client with streaming mode
-        # - Handle stream with chunks
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        return Message(role=Role.ASSISTANT, content=full_text)

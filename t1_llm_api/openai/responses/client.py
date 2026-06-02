@@ -1,4 +1,4 @@
-from openai import OpenAI, AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from commons.models.message import Message
 from commons.models.role import Role
@@ -20,65 +20,45 @@ class OpenAIResponsesClient(BaseOpenAIClient):
     """
 
     def __init__(self, endpoint: str, model_name: str, system_prompt: str, api_key: str):
-        """
-        Initialize the OpenAI Responses client with SDK.
-
-        Args:
-            endpoint (str): The OpenAI API endpoint (for compatibility, not used by SDK).
-            model_name (str): The OpenAI model to use (e.g., 'gpt-5').
-            system_prompt (str): The instruction to guide the model's behavior.
-            api_key (str): The OpenAI API key for authentication.
-        """
-        #TODO:
-        # Call to __init__ of super class
-        # Add OpenAI and AsyncOpenAI clients https://github.com/openai/openai-python?tab=readme-ov-file#usage
-        # (In readme you can find samples with both of these clients)
-        raise NotImplementedError
+        super().__init__(
+            endpoint=endpoint,
+            model_name=model_name,
+            system_prompt=system_prompt,
+            api_key=api_key,
+        )
+        self._client = OpenAI(api_key=api_key)
+        self._async_client = AsyncOpenAI(api_key=api_key)
 
     def response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a synchronous response from OpenAI's Responses API.
+        input_messages = [message.to_dict() for message in messages]
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        result = self._client.responses.create(
+            model=self._model_name,
+            instructions=self._system_prompt,
+            input=input_messages,
+        )
 
-        Returns:
-            Message: The AI's response message.
-
-        Note:
-            Uses the Responses API format with 'instructions' and 'input' parameters.
-            The response is printed to stdout before being returned.
-        """
-        #TODO:
-        # - Prepare input messages
-        # - Call client
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        text = result.output_text
+        print(f"\nAI: {text}")
+        return Message(role=Role.ASSISTANT, content=text)
 
     async def stream_response(self, messages: list[Message], **kwargs) -> Message:
-        """
-        Get a streaming response from OpenAI's Responses API.
+        input_messages = [message.to_dict() for message in messages]
 
-        The response is streamed using event-based streaming, with each delta
-        printed immediately as it arrives.
+        print("\nAI: ", end="", flush=True)
+        full_text = ""
 
-        Args:
-            messages (list[Message]): The conversation history.
-            **kwargs: Additional parameters for the API (currently unused).
+        async with self._async_client.responses.stream(
+            model=self._model_name,
+            instructions=self._system_prompt,
+            input=input_messages,
+        ) as stream:
+            async for event in stream:
+                if event.type == "response.output_text.delta":
+                    delta = event.delta
+                    if delta:
+                        print(delta, end="", flush=True)
+                        full_text += delta
 
-        Returns:
-            Message: The complete AI response message after all deltas are received.
-
-        Note:
-            Uses the Responses API streaming format with event types.
-            Listens for 'response.output_text.delta' events to build the response.
-        """
-        #TODO:
-        # - Prepare input messages
-        # - Call client with streaming mode
-        # - Handle stream with events
-        # - Print response to console
-        # - Return ASSISTANT message
-        raise NotImplementedError
+        print()
+        return Message(role=Role.ASSISTANT, content=full_text)
